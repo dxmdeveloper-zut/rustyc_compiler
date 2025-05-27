@@ -39,14 +39,24 @@ struct StackEntry {
     std::string value;
     ExprElemType type;
     VarType var_type = VarType::UNDEFINED;
+
+    std::string get_instr_postfix() const {
+        if (var_type == VarType::U8_ARR)
+            return "a";
+
+        if (type == ExprElemType::ID)
+            return var_type == VarType::F32 ? ".s" : "w";
+
+        return var_type == VarType::F32 ? ".s" : "i";
+
+    }
 };
 
 struct SymbolInfo {
     VarType type;
     bool temporary;
-    std::string inital_value;
+    std::string initial_value;
 };
-
 
 
 void dbg_print_stack(std::stack<StackEntry> stack) {
@@ -58,7 +68,7 @@ void dbg_print_stack(std::stack<StackEntry> stack) {
         tmp_stack[i++] = stack.top();
         stack.pop();
     }
-    for (const auto &entry : tmp_stack) {
+    for (const auto &entry: tmp_stack) {
         std::cerr << entry.value << std::endl;
         stack.push(entry);
     }
@@ -75,16 +85,12 @@ void push_string_literal(std::string value) {
 
 void push_id(std::string value) {
     auto type = (symbolTable.find(value) == symbolTable.end()
-                   ? VarType::UNDEFINED : symbolTable[value].type);
+                     ? VarType::UNDEFINED
+                     : symbolTable[value].type);
     stack.push({value, ExprElemType::ID, type});
 }
 
-std::string reserve_label() {
-    std::string label_name = "L";
-    label_name += std::to_string(label_counter++);
-    label_stack.push(label_name);
-    return label_name;
-}
+
 
 std::string load_to_register(StackEntry &entry, std::optional<std::string> reg = std::nullopt) {
     std::string reg_name = reg.value_or("$t0"); // TODO: get first free register. Create function for that
@@ -96,7 +102,6 @@ std::string load_to_register(StackEntry &entry, std::optional<std::string> reg =
         text_region << "lw " << reg_name << ", " << entry.value << std::endl;
     }
     return reg_name;
-
 }
 
 void gen_code_if_begin(CondExprOp condExprOp) {
@@ -109,7 +114,7 @@ void gen_code_if_begin(CondExprOp condExprOp) {
         "bge", // CondExprOp::LT
         "bgt", // CondExprOp::LEQ
         "ble", // CondExprOp::GT
-        "blt"  // CondExprOp::GEQ
+        "blt" // CondExprOp::GEQ
     };
 
     auto rhs = stack.top();
@@ -118,10 +123,11 @@ void gen_code_if_begin(CondExprOp condExprOp) {
     stack.pop();
 
     std::string lhs_reg = load_to_register(lhs);
-    std::string rhs_reg = load_to_register(rhs, "$t1"); // TODO: get first free register. Modify load_to_register function to do that
+    std::string rhs_reg = load_to_register(rhs, "$t1");
+    // TODO: get first free register. Modify load_to_register function to do that
 
     text_region << branch_instr[int(condExprOp)]
-                << " " << lhs_reg << ", " << rhs_reg << ", " << jump_label << std::endl;
+            << " " << lhs_reg << ", " << rhs_reg << ", " << jump_label << std::endl;
 }
 
 void gen_code_if_end() {
@@ -143,12 +149,12 @@ void gen_code_print(VarType print_type) {
     switch (print_type) {
         case VarType::I32:
             text_region << "li $v0, 1" << std::endl
-             << "l" << (stack_elem.type == ExprElemType::ID ? "w" : "i") // TODO: change it
-             <<" $a0, " << stack_elem.value << std::endl;
+                    << "l" << (stack_elem.type == ExprElemType::ID ? "w" : "i") // TODO: change it
+                    << " $a0, " << stack_elem.value << std::endl;
             break;
         case VarType::U8_ARR:
             text_region << "li $v0, 4" << std::endl
-              << "la $a0, " << stack_elem.value << std::endl;
+                    << "la $a0, " << stack_elem.value << std::endl;
             break;
         default:
             throw std::runtime_error("gen_code_print unsupported type");
@@ -158,7 +164,7 @@ void gen_code_print(VarType print_type) {
 
 void write_data_region(std::stringstream &data_region) {
     data_region << ".data:" << std::endl;
-    for (auto &symbol : symbolTable) {
+    for (auto &symbol: symbolTable) {
         data_region << symbol.first << ":    ";
         auto value = symbol.second.inital_value;
 
@@ -181,26 +187,6 @@ void write_data_region(std::stringstream &data_region) {
 }
 
 // functions
-void gen_code_declare(VarType type, bool assignment) {
-
-    StackEntry entry = stack.top();
-    stack.pop();
-    std::string &symbol = entry.value;
-
-    if (assignment) {
-        if (!symbolTable[symbol].temporary)
-            throw std::runtime_error("variable redeclaration");
-
-        symbolTable[symbol].temporary = false;
-
-        if (symbolTable[symbol].type == type) {
-            // TODO: convert if needed
-            throw std::runtime_error("conversion is not implemented");
-        }
-        return;
-    }
-    symbolTable[symbol] = { type, false, entry.value };
-}
 
 void gen_code(char op) {
     static int counter = 0;
@@ -215,9 +201,9 @@ void gen_code(char op) {
     threes << " " << op << " " << rhs.value << std::endl;
     stack.pop();
 
-    if((rhs.var_type == VarType::U8_ARR || lhs.var_type == VarType::U8_ARR)
+    if ((rhs.var_type == VarType::U8_ARR || lhs.var_type == VarType::U8_ARR)
         && (op != '=' || rhs.var_type != lhs.var_type)
-        && (lhs.var_type != VarType::UNDEFINED) ) {
+        && (lhs.var_type != VarType::UNDEFINED)) {
         throw std::runtime_error("arithmetic operation on string is not allowed");
     }
 
@@ -239,10 +225,10 @@ void gen_code(char op) {
             return "lw " + reg + ", " + value + "\n";
         return "";
     };
-    auto simple_arithmetic = [&](//const StackEntry &lhs,
-                                 //const StackEntry &rhs,
-                                 const std::string &arithm
-                                 ) -> std::string {
+    auto simple_arithmetic = [&]( //const StackEntry &lhs,
+        //const StackEntry &rhs,
+        const std::string &arithm
+    ) -> std::string {
         std::stringstream ss;
         // load lhs to t0
         ss << load_to_register(rhs.type, "$t0", rhs.value);
@@ -254,7 +240,7 @@ void gen_code(char op) {
     };
 
 
-    switch(op) {
+    switch (op) {
         case '-':
             text_region << simple_arithmetic("sub");
             break;
@@ -296,7 +282,6 @@ void gen_code(char op) {
         text_region << "sw $t0, " << result_symbol << "\n";
         counter++;
     }
-
 }
 
 int main(int argc, char **argv) {

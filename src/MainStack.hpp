@@ -12,6 +12,10 @@ public:
 
     void push(const StackEntry &entry);
 
+    StackEntry &top();
+
+    const StackEntry &top() const;
+
     StackEntry pop();
 
     /// @return [lhs, rhs]

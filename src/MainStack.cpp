@@ -23,6 +23,14 @@ void MainStack::push(const StackEntry &entry) {
     stack.push(entry);
 }
 
+StackEntry & MainStack::top() {
+    return stack.top();
+}
+
+const StackEntry & MainStack::top() const {
+    return stack.top();
+}
+
 StackEntry MainStack::pop() {
     if (stack.empty()) {
         throw std::runtime_error("Stack is empty");
