@@ -13,7 +13,7 @@ void MainStack::push(ExprElemType type, const std::string &value, VarType var_ty
     if (type == ExprElemType::ID && var_type == VarType::UNDEFINED) {
         auto sym = symbolTable.find(value);
         if (sym.has_value())
-            var_type = sym.value().type;
+            var_type = sym.value()->type;
     }
 
     stack.push({value, type, var_type});

@@ -23,8 +23,8 @@ add_executable(compiler
         ${BISON_Parser_OUTPUTS}
         src/MainStack.hpp
         src/MainStack.cpp
-        src/CodeGenerator.hpp
-        src/CodeGenerator.cpp
+        src/Compiler.hpp
+        src/Compiler.cpp
         src/HashMap.hpp
 )
 

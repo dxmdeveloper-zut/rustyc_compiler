@@ -3,9 +3,9 @@
 #include "MainStack.hpp"
 #include "HashMap.hpp"
 
-class CodeGenerator {
+class Compiler {
 public:
-    CodeGenerator();
+    Compiler();
 
     void gen_arithmetic(char op);
 
@@ -20,6 +20,11 @@ public:
     void gen_print(VarType print_type);
 
     void set_cond_expr_op(CondExprOp op);
+
+    void write_data_region(std::ostream &ostream) const;
+
+    void write_text_region(std::ostream &ostream) const;
+
 
 public:
     MainStack stack;
@@ -42,3 +47,4 @@ private:
     int label_counter = 0;
     CondExprOp cond_expr_op = CondExprOp::EQ;
 };
+

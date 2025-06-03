@@ -2,12 +2,13 @@
 #define INFILE_ERROR 1
 #define OUTFILE_ERROR 2
 
-#include "parser.hpp"
+#include "../src/Compiler.hpp" // TODO: CMAKE modification
 
 extern "C" int yyparse(void);
 extern "C" int yyerror(const char *, ...);
 extern "C" int yylex(void);
 
+Compiler compiler;
 
 %}
 %union 
@@ -33,10 +34,10 @@ stmt_list
 
 stmt
     : variable_decl ';' {;}
-    | assignment ';' {; /* TODO: verify if left side variable is declared */}
-    | KPRINT_I32 '(' wyr ')' ';' {gen_code_print(VarType::I32);}
-    | KPRINT_F32 '(' wyr ')' ';' {gen_code_print(VarType::F32);}
-    | KPRINT_STRING '(' wyr ')' ';' {gen_code_print(VarType::U8_ARR);}
+    | assignment ';' {;  compiler.gen_assignment();}
+    | KPRINT_I32 '(' wyr ')' ';' {compiler.gen_print(VarType::I32);}
+    | KPRINT_F32 '(' wyr ')' ';' {compiler.gen_print(VarType::F32);}
+    | KPRINT_STRING '(' wyr ')' ';' {compiler.gen_print(VarType::U8_ARR);}
     | if_expr {;}
     ;
 
@@ -46,47 +47,51 @@ code_block
     ;
 
 wyr
-	:wyr '+' skladnik	{gen_code('+');}
-	|wyr '-' skladnik	{gen_code('-');}
+	:wyr '+' skladnik	{compiler.gen_arithmetic('+');}
+	|wyr '-' skladnik	{compiler.gen_arithmetic('-');}
 	|skladnik		{; /*printf("B: wyrazenie pojedyncze \n"); */ }
 	;
 variable_decl
-    :I32 assignment {;}
-    |F32 assignment {;}
-    |U8 '[' ']' assignment { /* TODO: wrong order. fix  print_str(var) doesn't work*/;}
-    |I32 ID {;}
-    |F32 ID {;}
+    :I32 assignment {compiler.gen_declare(VarType::I32, true);}
+    |F32 assignment {compiler.gen_declare(VarType::I32, true);}
+    |U8 '[' ']' assignment {compiler.gen_declare(VarType::U8_ARR, true) /* TODO: wrong order */;}
+    |I32 ID {compiler.gen_declare(VarType::I32, false);}
+    |F32 ID {compiler.gen_declare(VarType::F32, false);}
     ;
 assignment
-    :ID '=' wyr     { stack.push({$1, ExprElemType::ID}); gen_code('=');}
+    :ID '=' wyr     { compiler.stack.push(ExprElemType::ID, $1);}
     ;
 if_expr
-	:if_begin code_block {gen_code_if_end();}
+	:if_begin code_block { compiler.gen_if_end(); }
 	;
 if_begin
-    :KIF '(' cond_expr ')' {gen_code_if_begin(cond_expr_op);}
+    :KIF '(' cond_expr ')' {compiler.gen_if_begin();}
     ;
 cond_expr
-    : wyr EQ wyr  { cond_expr_op = CondExprOp::EQ  ;};
-    | wyr NEQ wyr { cond_expr_op = CondExprOp::NEQ ;};
-    | wyr '<' wyr { cond_expr_op = CondExprOp::LT  ;};
-    | wyr LEQ wyr { cond_expr_op = CondExprOp::LEQ ;};
-    | wyr '>' wyr { cond_expr_op = CondExprOp::GT  ;};
-    | wyr GEQ wyr { cond_expr_op = CondExprOp::EQ  ;};
+    : wyr EQ wyr  { compiler.set_cond_expr_op(CondExprOp::EQ ) ;};
+    | wyr NEQ wyr { compiler.set_cond_expr_op(CondExprOp::NEQ) ;};
+    | wyr '<' wyr { compiler.set_cond_expr_op(CondExprOp::LT ) ;};
+    | wyr LEQ wyr { compiler.set_cond_expr_op(CondExprOp::LEQ) ;};
+    | wyr '>' wyr { compiler.set_cond_expr_op(CondExprOp::GT ) ;};
+    | wyr GEQ wyr { compiler.set_cond_expr_op(CondExprOp::EQ ) ;};
     ;
 skladnik
-	:skladnik '*' czynnik	{gen_code('*');}
-	|skladnik '/' czynnik	{gen_code('/');}
+	:skladnik '*' czynnik	{compiler.gen_arithmetic('*');}
+	|skladnik '/' czynnik	{compiler.gen_arithmetic('/');}
 	|czynnik		{;}
 	;
 czynnik
-	:ID			{push_id($1);}
-	|KINT		{stack.push({std::to_string($1), ExprElemType::NUMBER, VarType::I32});}
-	|KFLOAT     {stack.push({std::to_string($1), ExprElemType::NUMBER, VarType::F32});}
-	|STRING     {push_string_literal($1);}
+	:ID			{compiler.stack.push(ExprElemType::ID, $1);}
+	|KINT		{compiler.stack.push(ExprElemType::NUMBER, std::to_string($1), VarType::I32);}
+	|KFLOAT     {compiler.stack.push(ExprElemType::NUMBER, std::to_string($1), VarType::F32);}
+	|STRING     {compiler.stack.push(ExprElemType::STRING_LITERAL, $1);}
 	|'(' wyr ')'		{printf("B: wyrazenie w nawiasach\n");}
 	;
 %%
-//int main(int argc, char *argv[])
-//{
-//}
+int main(int argc, char **argv) {
+    yyparse();
+
+    compiler.write_data_region(std::cout);
+    compiler.write_text_region(std::cout);
+    return 0;
+}

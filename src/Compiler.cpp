@@ -1,9 +1,9 @@
-#include "CodeGenerator.hpp"
+#include "Compiler.hpp"
 
-CodeGenerator::CodeGenerator(): stack(symbolTable) {
+Compiler::Compiler(): stack(symbolTable) {
 }
 
-void CodeGenerator::gen_arithmetic(char op) {
+void Compiler::gen_arithmetic(char op) {
     static int counter = 0;
 
     std::string result_name = "result_" + std::to_string(counter);
@@ -50,7 +50,7 @@ void CodeGenerator::gen_arithmetic(char op) {
     counter++;
 }
 
-void CodeGenerator::gen_assignment() {
+void Compiler::gen_assignment() {
     auto [lhs, rhs] = stack.pop_two();
 
     if (lhs.type != ExprElemType::ID) {
@@ -59,11 +59,10 @@ void CodeGenerator::gen_assignment() {
 
     auto found_sym = symbolTable.find(lhs.value);
 
-    decltype(gen_load_to_register(rhs)) rhs_reg;
-
     if (!found_sym.has_value()) {
-        // add symbol to the symbolTable as temporary
-        symbolTable[lhs.value] = {rhs.var_type, true};
+        throw std::runtime_error("undefined variable: " + lhs.value);
+    }
+    if (!found_sym.value()->initialized) {
         if (rhs.type == ExprElemType::NUMBER) {
             symbolTable[lhs.value].initial_value = rhs.value;
         } else if (rhs.var_type == VarType::U8_ARR) {
@@ -73,43 +72,68 @@ void CodeGenerator::gen_assignment() {
             if (rhs.value.rfind("__str", 0) == 0) {
                 symbolTable.erase(rhs.value);
             }
-        } else if (rhs.type == ExprElemType::ID) {
-            rhs_reg = gen_load_to_register(rhs);
         }
+        symbolTable[lhs.value].initialized = true;
     }
-
-    gen_store_to_variable(lhs, rhs_reg);
+    else {
+        decltype(gen_load_to_register(rhs)) rhs_reg;
+        gen_store_to_variable(lhs, rhs_reg);
+    }
 }
 
-void CodeGenerator::gen_declare(VarType type, bool assignment) {
-    StackEntry entry = stack.top();
-    stack.pop();
-    std::string &symbol = entry.value;
+void Compiler::gen_declare(VarType type, bool assignment) {
+    StackEntry lhs = stack.top();
+    std::string &symbol = lhs.value;
 
-    if (assignment) {
-        if (!symbolTable[symbol].temporary)
-            throw std::runtime_error("variable redeclaration");
+    if (symbolTable.contains(symbol)) {
+        throw std::runtime_error("variable redeclaration: " + symbol);
+    }
 
-        symbolTable[symbol].temporary = false;
+    symbolTable[symbol] = {type, false};
 
-        if (symbolTable[symbol].type == type) {
-            // TODO: convert if needed
-            throw std::runtime_error("conversion is not implemented");
-        }
+    if (!assignment) {
+        stack.pop();
         return;
     }
-    symbolTable[symbol] = {type, false, entry.value};
+    gen_assignment();
 }
 
-void CodeGenerator::gen_if_begin() {
+void Compiler::gen_if_begin() {
+    // TODO type mismatch check
+    std::string jump_label = reserve_label();
 
+    static_assert(static_cast<int>(CondExprOp::EQ) == 0
+        && static_cast<int>(CondExprOp::GEQ) == 5);
+    std::array<std::string_view, 6> branch_instr = {
+        "bne", // CondExprOp::EQ
+        "beq", // CondExprOp::NEQ
+        "bge", // CondExprOp::LT
+        "bgt", // CondExprOp::LEQ
+        "ble", // CondExprOp::GT
+        "blt" // CondExprOp::GEQ
+    };
+
+    auto [lhs, rhs] = stack.pop_two();
+
+    std::string lhs_reg = gen_load_to_register(lhs);
+    std::string rhs_reg = gen_load_to_register(rhs, "$t1");
+    // TODO: get first free register. Modify load_to_register function to do that
+
+    text_region << branch_instr[int(cond_expr_op)]
+            << " " << lhs_reg << ", " << rhs_reg << ", " << jump_label << std::endl;
 }
 
-void CodeGenerator::set_cond_expr_op(CondExprOp op) {
+void Compiler::gen_if_end() {
+    std::string label = label_stack.top();
+    label_stack.pop();
+    text_region << label << ":" << std::endl;
+}
+
+void Compiler::set_cond_expr_op(CondExprOp op) {
     cond_expr_op = op;
 }
 
-std::string CodeGenerator::gen_load_to_register(StackEntry &entry, std::optional<std::string_view> reg) {
+std::string Compiler::gen_load_to_register(StackEntry &entry, std::optional<std::string_view> reg) {
     // TODO: register type assertion
     std::string_view reg_name = reg.value_or("$t0"); // TODO: get first free register. Create function for that
 
@@ -119,24 +143,24 @@ std::string CodeGenerator::gen_load_to_register(StackEntry &entry, std::optional
     return std::string(reg_name);
 }
 
-void CodeGenerator::gen_load_to_register(int value, std::string_view reg) {
+void Compiler::gen_load_to_register(int value, std::string_view reg) {
     text_region << "li " << reg << ", " << value << std::endl;
 }
 
-void CodeGenerator::gen_store_to_variable(const StackEntry &var, std::string_view reg) {
+void Compiler::gen_store_to_variable(const StackEntry &var, std::string_view reg) {
     text_region << "s" << var.get_instr_postfix()
     << " " << reg
     <<  " , "  << var.value << std::endl;
 }
 
-std::string CodeGenerator::reserve_label() {
+std::string Compiler::reserve_label() {
     std::string label_name = "L";
     label_name += std::to_string(label_counter++);
     label_stack.push(label_name);
     return label_name;
 }
 
-void CodeGenerator::gen_print(VarType print_type) {
+void Compiler::gen_print(VarType print_type) {
     auto stack_elem = stack.pop();
 
     if (stack_elem.type == ExprElemType::ID && !symbolTable.contains(stack_elem.value)) {
@@ -161,3 +185,32 @@ void CodeGenerator::gen_print(VarType print_type) {
     text_region << "syscall" << std::endl;
 }
 
+void Compiler::write_data_region(std::ostream &ostream) const {
+    ostream << ".data:" << std::endl;
+    for (auto &symbol : symbolTable) {
+        ostream << symbol.first << ":    ";
+        auto value = symbol.second.initial_value;
+
+        switch (symbol.second.type) {
+            case VarType::I32:
+                ostream << ".word    ";
+            break;
+            case VarType::F32:
+                ostream << ".float    ";
+            break;
+            case VarType::U8_ARR:
+                ostream << ".asciiz    ";
+            break;
+            default:
+                throw std::runtime_error("unsupported type");
+        }
+
+        ostream << (value.empty() ? "0" : value) << std::endl;
+    }
+    ostream << std::endl;
+}
+
+void Compiler::write_text_region(std::ostream &ostream) const {
+    ostream << ".text:" << std::endl;
+    ostream << text_region.str() << std::endl;
+}

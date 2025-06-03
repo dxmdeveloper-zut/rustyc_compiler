@@ -25,10 +25,10 @@ public:
         return map[key];
     }
 
-    std::optional<TValue&> find(const TKey &key) {
+    std::optional<TValue*> find(const TKey &key) {
         auto it = map.find(key);
         if (it != map.end()) {
-            return it->second;
+            return &it->second;
         }
         return std::nullopt;
     }
@@ -53,10 +53,10 @@ public:
         map.clear();
     }
 
-    decltype(std::unordered_map<TKey, TValue>::iterator) begin() { return map.begin(); }
-    decltype(std::unordered_map<TKey, TValue>::iterator) end() { return map.end(); }
-    decltype(std::unordered_map<TKey, TValue>::iterator) begin() const { return map.begin(); }
-    decltype(std::unordered_map<TKey, TValue>::iterator) end() const { return map.end(); }
+    typename std::unordered_map<TKey, TValue>::iterator begin() { return map.begin(); }
+    typename std::unordered_map<TKey, TValue>::iterator end() { return map.end(); }
+    typename std::unordered_map<TKey, TValue>::const_iterator begin() const { return map.begin(); }
+    typename std::unordered_map<TKey, TValue>::const_iterator end() const { return map.end(); }
 
 private:
     std::unordered_map<TKey, TValue> map;
