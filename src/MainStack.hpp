@@ -24,8 +24,11 @@ public:
 private:
     void push_string_literal(const std::string &value);
 
+    void push_float_literal(const std::string &value);
+
 private:
     std::stack<StackEntry> stack;
     HashMap<std::string, SymbolInfo> &symbolTable;
     int str_counter = 0;
+    int float_counter = 0;
 };

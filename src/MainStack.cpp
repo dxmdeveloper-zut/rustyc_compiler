@@ -15,6 +15,10 @@ void MainStack::push(ExprElemType type, const std::string &value, VarType var_ty
         if (sym.has_value())
             var_type = sym.value()->type;
     }
+    else if (type == ExprElemType::NUMBER && var_type == VarType::F32) {
+        push_float_literal(value);
+        return;
+    }
 
     stack.push({value, type, var_type});
 }
@@ -50,5 +54,12 @@ void MainStack::push_string_literal(const std::string& value) {
     std::string symbol_name = "__str" + std::to_string(str_counter);
     symbolTable[symbol_name] = {VarType::U8_ARR, false, value};
     stack.push({symbol_name, ExprElemType::ID, VarType::U8_ARR});
+    str_counter++;
+}
+
+void MainStack::push_float_literal(const std::string &value) {
+    std::string symbol_name = "__float" + std::to_string(str_counter);
+    symbolTable[symbol_name] = {VarType::F32, false, value};
+    stack.push({symbol_name, ExprElemType::ID, VarType::F32});
     str_counter++;
 }

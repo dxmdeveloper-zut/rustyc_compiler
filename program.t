@@ -1,7 +1,5 @@
-if(8 > 4) {
-	print_str("8 > 4");
-}
-
-if(4 > 8) {
-	print_str("4 > 8");
-}
+i32 i = 32.0;
+f32 a = i * 25.0;
+print_f32(a);
+i32 c = a;
+print_i32(c);

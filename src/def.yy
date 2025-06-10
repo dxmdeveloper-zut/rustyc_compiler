@@ -53,7 +53,7 @@ wyr
 	;
 variable_decl
     :I32 assignment {compiler.gen_declare(VarType::I32, true);}
-    |F32 assignment {compiler.gen_declare(VarType::I32, true);}
+    |F32 assignment {compiler.gen_declare(VarType::F32, true);}
     |U8 '[' ']' assignment {compiler.gen_declare(VarType::U8_ARR, true) /* TODO: wrong order */;}
     |I32 ID {compiler.gen_declare(VarType::I32, false);}
     |F32 ID {compiler.gen_declare(VarType::F32, false);}

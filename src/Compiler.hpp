@@ -34,6 +34,10 @@ private:
 
     void gen_load_to_register(int value, std::string_view reg);
 
+    void gen_cvt_i32_to_f32(std::string_view i_reg, std::string_view f_reg);
+
+    void gen_cvt_f32_to_i32(std::string_view f_reg, std::string_view i_reg);
+
     void gen_store_to_variable(const StackEntry &var, std::string_view reg);
 
     std::string reserve_label();
