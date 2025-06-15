@@ -14,11 +14,13 @@ int yyerror(char *,...);
 
 \,  {return ',';}
 \#  {return '#';}
-
+\.\.\= {return DOTDOTEQ;}
+\.\.  {return DOTDOT;}
 \:  {return ':';}
 \;  {return ';';}
 
 if  {return KIF;}
+else  {return KELSE;}
 for {return KFOR;}
 
 \(  {return '(';}

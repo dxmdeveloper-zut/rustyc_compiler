@@ -17,14 +17,21 @@ public:
 
     void gen_if_end();
 
+    void gen_else();
+
+    void gen_for_begin();
+
+    void gen_for_end();
+
     void gen_print(VarType print_type);
 
     void set_cond_expr_op(CondExprOp op);
 
+    void set_for_conditions(std::string idx_id, bool inclusive, int increment = 1);
+
     void write_data_region(std::ostream &ostream) const;
 
     void write_text_region(std::ostream &ostream) const;
-
 
 public:
     MainStack stack;
@@ -43,12 +50,15 @@ private:
     std::string reserve_label();
 
 private:
-    HashMap<std::string, SymbolInfo> symbolTable;
-    std::stack<std::string> label_stack;
     std::stringstream data_region;
     std::stringstream text_region;
+    HashMap<std::string, SymbolInfo> symbolTable;
+
+    std::stack<std::string> label_stack;
 
     int label_counter = 0;
     CondExprOp cond_expr_op = CondExprOp::EQ;
+    bool for_inclusive = false;
+    int for_increment = 1;
 };
 

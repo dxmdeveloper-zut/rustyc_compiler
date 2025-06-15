@@ -168,8 +168,75 @@ void Compiler::gen_if_end() {
     text_region << label << ":" << std::endl;
 }
 
+void Compiler::gen_else() {
+    std::string else_label = label_stack.top();
+    label_stack.pop();
+    std::string end_label = reserve_label();
+
+    text_region << "b " << end_label << std::endl;
+    text_region << else_label << ":" << std::endl;
+}
+
+void Compiler::gen_for_begin() {
+    std::string loop_end_label = reserve_label();
+    std::string loop_body_label = reserve_label();
+    label_stack.pop();
+    std::string loop_start_label = reserve_label();
+
+    // Get index variable and right-hand side value from the stack
+    auto [idx_id, rhs] = stack.pop_two();
+    std::string idx_reg = gen_load_to_register(idx_id);
+
+    // write start of the loop label
+    text_region << loop_start_label << ":" << std::endl;
+
+    idx_reg = gen_load_to_register(idx_id);
+
+    // increment
+    if (for_increment > 0) {
+        text_region << "addi " << idx_reg << ", " << idx_reg << ", " << for_increment << std::endl;
+    } else {
+        text_region << "subi " << idx_reg << ", " << idx_reg << ", " << -for_increment << std::endl;
+    }
+
+    // condition check
+    std::string rhs_reg = gen_load_to_register(rhs, "$t1");
+
+    std::string branch_instr;
+    if (for_increment > 0)
+        branch_instr = (for_inclusive ? "bgt" : "bge");
+    else
+        branch_instr = (for_inclusive ? "blt" : "ble");
+
+    text_region << branch_instr << " " << idx_reg << ", " << rhs_reg << ", " << loop_end_label << std::endl;
+}
+
+void Compiler::gen_for_end() {
+    std::string loop_start_label = label_stack.top();
+    label_stack.pop();
+    std::string loop_end_label = label_stack.top();
+    label_stack.pop();
+
+    text_region << "b " << loop_start_label << std::endl;
+    text_region << loop_end_label << ":" << std::endl;
+}
+
 void Compiler::set_cond_expr_op(CondExprOp op) {
     cond_expr_op = op;
+}
+
+void Compiler::set_for_conditions(std::string idx_id, bool inclusive, int increment) {
+    auto range_right = stack.pop();
+    // range left is in the stack top
+    // declaration with assignment idx = range_left
+    stack.push(ExprElemType::ID, idx_id, VarType::I32);
+    gen_declare(VarType::I32, true);
+
+    stack.push(ExprElemType::ID, idx_id, VarType::I32);
+    stack.push(range_right);
+
+    for_increment = increment;
+    for_inclusive = inclusive;
 }
 
 std::string Compiler::gen_load_to_register(StackEntry &entry, std::optional<std::string_view> reg) {
