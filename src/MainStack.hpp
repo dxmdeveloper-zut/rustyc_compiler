@@ -12,6 +12,13 @@ public:
 
     void push(const StackEntry &entry);
 
+    void push(int32_t value) {
+        push(ExprElemType::NUMBER, std::to_string(value), VarType::I32);
+    }
+    void push(float value) {
+        push(ExprElemType::NUMBER, std::to_string(value), VarType::F32);
+    }
+
     StackEntry &top();
 
     const StackEntry &top() const;

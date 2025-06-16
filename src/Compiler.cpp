@@ -1,8 +1,8 @@
 #include "Compiler.hpp"
 
-#include <assert.h>
+#include <cassert>
 
-Compiler::Compiler(): stack(symbolTable) {
+Compiler::Compiler(): stack(symbolTable), reg_mgr(this) {
 }
 
 void Compiler::gen_arithmetic(char op) {
@@ -24,26 +24,15 @@ void Compiler::gen_arithmetic(char op) {
     symbolTable[result_symbol] = {result_var_type, true};
 
     // Load left and right operands into registers
-    // TODO: automatic register selection
-    std::string rhs_reg;
-    std::string lhs_reg;
+    Reg rhs_reg = gen_load_to_register(rhs);
+    Reg lhs_reg = gen_load_to_register(lhs);
 
     if (to_float) {
         if (rhs.var_type == VarType::I32) {
-            rhs_reg = gen_load_to_register(rhs, "$t0");
-            gen_cvt_i32_to_f32(rhs_reg, "$f0");
-            lhs_reg = gen_load_to_register(lhs, "$f1");
+            rhs_reg = gen_cvt_i32_to_f32(rhs_reg);
         } else {
-            lhs_reg = gen_load_to_register(rhs, "$t1");
-            gen_cvt_i32_to_f32(rhs_reg, "$f1");
-            rhs_reg = gen_load_to_register(rhs, "$f0");
+            lhs_reg = gen_cvt_i32_to_f32(lhs_reg);
         }
-    } else if (result_var_type == VarType::F32) {
-        rhs_reg = gen_load_to_register(rhs, "$f0");
-        lhs_reg = gen_load_to_register(lhs, "$f1");
-    } else {
-        rhs_reg = gen_load_to_register(rhs, "$t0");
-        lhs_reg = gen_load_to_register(lhs, "$t1");
     }
 
     // write the operation to the text region
@@ -67,8 +56,7 @@ void Compiler::gen_arithmetic(char op) {
     // TODO: TODO?
     stack.push({result_symbol, ExprElemType::ID, result_var_type});
 
-    // TODO Optimize: used registers table, registers on stack
-    gen_store_to_variable(stack.top(), rhs_reg);
+    gen_store_to_variable(stack.top(), std::move(rhs_reg));
     counter++;
 }
 
@@ -109,13 +97,11 @@ void Compiler::gen_assignment() {
         auto rhs_reg = gen_load_to_register(rhs);
         // Conversion of right side to match left side variable type
         if (lhs.var_type == VarType::I32 && rhs.var_type == VarType::F32) {
-            gen_cvt_i32_to_f32(rhs_reg, "$f0");
-            rhs_reg = "$f0";
+            rhs_reg = gen_cvt_i32_to_f32(rhs_reg);
         } else if (lhs.var_type == VarType::F32 && rhs.var_type == VarType::I32) {
-            gen_cvt_f32_to_i32(rhs_reg, "$t0");
-            rhs_reg = "$t0";
+            rhs_reg = gen_cvt_f32_to_i32(rhs_reg);
         }
-        gen_store_to_variable(lhs, rhs_reg);
+        gen_store_to_variable(lhs, std::move(rhs_reg));
     }
 }
 
@@ -154,12 +140,11 @@ void Compiler::gen_if_begin() {
 
     auto [lhs, rhs] = stack.pop_two();
 
-    std::string lhs_reg = gen_load_to_register(lhs);
-    std::string rhs_reg = gen_load_to_register(rhs, "$t1");
-    // TODO: get first free register. Modify load_to_register function to do that
+    Reg lhs_reg = gen_load_to_register(lhs);
+    Reg rhs_reg = gen_load_to_register(rhs);
 
     text_region << branch_instr[int(cond_expr_op)]
-            << " " << lhs_reg << ", " << rhs_reg << ", " << jump_label << std::endl;
+            << " " << lhs_reg.str() << ", " << rhs_reg.str() << ", " << jump_label << std::endl;
 }
 
 void Compiler::gen_if_end() {
@@ -184,13 +169,16 @@ void Compiler::gen_for_begin() {
     std::string loop_start_label = reserve_label();
 
     // Get index variable and right-hand side value from the stack
+    // TODO: reserve register to disallow storing there variables
+    // TODO: remove register from __result variables
     auto [idx_id, rhs] = stack.pop_two();
-    std::string idx_reg = gen_load_to_register(idx_id);
+    Reg idx_reg = gen_load_to_register(idx_id);
 
     // write start of the loop label
     text_region << loop_start_label << ":" << std::endl;
 
-    idx_reg = gen_load_to_register(idx_id);
+    std::string idx_reg_str = idx_reg.str();
+    idx_reg = gen_load_to_register(idx_id, idx_reg_str.c_str());
 
     // increment
     if (for_increment > 0) {
@@ -200,7 +188,7 @@ void Compiler::gen_for_begin() {
     }
 
     // condition check
-    std::string rhs_reg = gen_load_to_register(rhs, "$t1");
+    Reg rhs_reg = gen_load_to_register(rhs);
 
     std::string branch_instr;
     if (for_increment > 0)
@@ -239,33 +227,69 @@ void Compiler::set_for_conditions(std::string idx_id, bool inclusive, int increm
     for_inclusive = inclusive;
 }
 
-std::string Compiler::gen_load_to_register(StackEntry &entry, std::optional<std::string_view> reg) {
-    // TODO: register type assertion
-    std::string_view reg_name = reg.value_or(entry.var_type == VarType::F32 ? "$f0" : "$t0");
-    // TODO: get first free register. Create function for that
+Reg Compiler::gen_load_to_register(const StackEntry &entry, const char *reg_name) {
+    Reg reg{};
+    if (reg_name == nullptr) {
+        if (entry.var_type == VarType::I32) {
+            reg = reg_mgr.get_free_register(Reg::Type::T_REG);
+        }
+        else if (entry.var_type == VarType::F32) {
+            reg = reg_mgr.get_free_register(Reg::Type::F_REG);
+        }
+        if (!reg) {
+            throw std::runtime_error("Out of registers");
+        }
+    }
+    else reg = Reg(reg_name);
+
+    assert(!(entry.var_type != VarType::F32 && reg.get_type() == Reg::Type::F_REG));
 
     text_region << "l" << entry.get_instr_postfix() << " "
-            << reg_name << ", " << entry.value << std::endl;
+            << reg.str() << ", " << entry.value << std::endl;
 
-    return std::string(reg_name);
+    return std::move(reg);
 }
 
 void Compiler::gen_load_to_register(int value, std::string_view reg) {
     text_region << "li " << reg << ", " << value << std::endl;
 }
 
-void Compiler::gen_cvt_i32_to_f32(std::string_view i_reg, std::string_view f_reg) {
+void Compiler::gen_cvt_i32_to_f32(const Reg &i_reg, const Reg &f_reg) {
     text_region << "mtc1 " << i_reg << ", " << f_reg << std::endl;
     text_region << "cvt.s.w " << f_reg << ", " << f_reg << std::endl;
 }
 
-void Compiler::gen_cvt_f32_to_i32(std::string_view f_reg, std::string_view i_reg) {
+void Compiler::gen_cvt_f32_to_i32(const Reg &f_reg, const Reg &i_reg) {
     text_region << "cvt.w.s " << f_reg << ", " << f_reg << std::endl;
     text_region << "mfc1 " << i_reg << ", " << f_reg << std::endl;
 }
 
-void Compiler::gen_store_to_variable(const StackEntry &var, std::string_view reg) {
-    assert(!reg.empty());
+Reg Compiler::gen_cvt_i32_to_f32(const Reg &i_reg) {
+    Reg f_reg = reg_mgr.get_free_register(Reg::Type::F_REG);
+    if (!f_reg) {
+        throw std::runtime_error("Out of registers");
+    }
+    gen_cvt_i32_to_f32(i_reg, f_reg);
+    return f_reg;
+}
+
+Reg Compiler::gen_cvt_f32_to_i32(const Reg &f_reg) {
+    Reg i_reg = reg_mgr.get_free_register(Reg::Type::T_REG);
+    if (!i_reg) {
+        throw std::runtime_error("Out of registers");
+    }
+    gen_cvt_f32_to_i32(f_reg, i_reg);
+    return i_reg;
+}
+
+void Compiler::gen_store_to_variable(const StackEntry &var, Reg &&reg) {
+    assert(reg);
+    if (var.value.rfind("__result", 0) == 0) {
+        if (reg_mgr.set_storing_type(reg, RegisterManager::StoringType::CALC_RESULT) == 0) {
+            symbolTable.at(var.value).occupied_reg = std::move(reg);
+            return;
+        }
+    }
     text_region << "s" << var.get_instr_postfix()
             << " " << reg
             << " , " << var.value << std::endl;
@@ -303,6 +327,41 @@ void Compiler::gen_print(VarType print_type) {
     text_region << "syscall" << std::endl;
 }
 
+void Compiler::declare_array(VarType type) {
+    assert(!static_array_dims.empty());
+    auto id = stack.pop();
+
+    if (symbolTable.contains(id.value))
+        throw std::runtime_error("Symbol already exists");
+
+    size_t total_size = 0;
+    int32_t cur_size = 1;
+    std::vector<int32_t> dims;
+    std::vector<int32_t> sizes;
+    dims.reserve(static_array_dims.size());
+    sizes.reserve(static_array_dims.size());
+
+    for (int i = 0; i < static_array_dims.size(); i++) {
+        auto size = static_array_dims.top();
+        if (size <= 0) {
+            throw std::runtime_error("Array size must be positive");
+        }
+        dims.push_back(size);
+        sizes.push_back(cur_size);
+        cur_size *= size;
+        total_size += size;
+    }
+
+    SymbolInfo symbol{
+        .type = type,
+        .temporary = false,
+        .initial_value = "0:" + total_size,
+        .array_dims = dims,
+        .array_sizes = sizes,
+        .initialized = true
+    };
+}
+
 void Compiler::write_data_region(std::ostream &ostream) const {
     ostream << ".data:" << std::endl;
     for (auto &symbol: symbolTable) {
@@ -311,9 +370,11 @@ void Compiler::write_data_region(std::ostream &ostream) const {
 
         switch (symbol.second.type) {
             case VarType::I32:
+            case VarType::I32_ARR:
                 ostream << ".word    ";
                 break;
             case VarType::F32:
+            case VarType::F32_ARR:
                 ostream << ".float    ";
                 break;
             case VarType::U8_ARR:

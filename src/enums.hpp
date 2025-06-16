@@ -12,10 +12,13 @@
 #include <stack>
 #include <unordered_map>
 
+#include "RegisterManager.hpp"
+
 
 enum class ExprElemType {
     ID,
     NUMBER,
+    ARRAY_ELEM,
     STRING_LITERAL, // only as argument to push it on the stack
 };
 
@@ -23,7 +26,9 @@ enum class VarType {
     UNDEFINED,
     I32,
     F32,
-    U8_ARR
+    U8_ARR,
+    I32_ARR,
+    F32_ARR,
 };
 
 enum class CondExprOp {
@@ -39,6 +44,9 @@ struct StackEntry {
     std::string value;
     ExprElemType type;
     VarType var_type = VarType::UNDEFINED;
+
+    int arr_static_idx = -1; // -1 array index has to be calculated in runtime
+    std::vector<int> arr_indices; // -1 indicates element on the stack
 
     std::string get_instr_postfix() const {
         if (var_type == VarType::U8_ARR)
@@ -56,7 +64,10 @@ struct SymbolInfo {
     VarType type;
     bool temporary;
     std::string initial_value;
+    std::vector<int> array_dims;
+    std::vector<int> array_sizes;
     bool initialized = false;
+    Reg occupied_reg{};
 };
 
 

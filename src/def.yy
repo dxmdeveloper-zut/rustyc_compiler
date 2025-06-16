@@ -69,7 +69,7 @@ size_const
     | size_value {;}
     ;
 size_value
-    : KINT {; /* TODO: finish it */ }
+    : KINT { static_array_sizes.push($1); }
     ;
 assignment
     :ID '=' wyr     { compiler.stack.push(ExprElemType::ID, $1);}
@@ -111,9 +111,9 @@ skladnik
 	;
 czynnik
 	:ID			{compiler.stack.push(ExprElemType::ID, $1);}
-	|KINT		{compiler.stack.push(ExprElemType::NUMBER, std::to_string($1), VarType::I32);}
-	|KFLOAT     {compiler.stack.push(ExprElemType::NUMBER, std::to_string($1), VarType::F32);}
 	|STRING     {compiler.stack.push(ExprElemType::STRING_LITERAL, $1);}
+	|KINT		{compiler.stack.push($1);}
+	|KFLOAT     {compiler.stack.push($1);}
 	|'(' wyr ')'		{printf("B: wyrazenie w nawiasach\n");}
 	;
 %%

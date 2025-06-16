@@ -1,7 +1,8 @@
 #pragma once
-#include "enums.hpp"
 #include "MainStack.hpp"
 #include "HashMap.hpp"
+#include "RegisterManager.hpp"
+#include "enums.hpp"
 
 class Compiler {
 public:
@@ -25,6 +26,8 @@ public:
 
     void gen_print(VarType print_type);
 
+    void declare_array(VarType type);
+
     void set_cond_expr_op(CondExprOp op);
 
     void set_for_conditions(std::string idx_id, bool inclusive, int increment = 1);
@@ -35,17 +38,23 @@ public:
 
 public:
     MainStack stack;
+    RegisterManager reg_mgr;
+    std::stack<int32_t> static_array_dims;
 
 private:
-    std::string gen_load_to_register(StackEntry &entry, std::optional<std::string_view> reg = std::nullopt);
+    Reg gen_load_to_register(const StackEntry &entry, const char *reg_name = nullptr);
 
     void gen_load_to_register(int value, std::string_view reg);
 
-    void gen_cvt_i32_to_f32(std::string_view i_reg, std::string_view f_reg);
+    void gen_cvt_i32_to_f32(const Reg &i_reg, const Reg &f_reg);
 
-    void gen_cvt_f32_to_i32(std::string_view f_reg, std::string_view i_reg);
+    void gen_cvt_f32_to_i32(const Reg &f_reg, const Reg &i_reg);
 
-    void gen_store_to_variable(const StackEntry &var, std::string_view reg);
+    [[nodiscard]] Reg gen_cvt_i32_to_f32(const Reg &i_reg);
+
+    [[nodiscard]] Reg gen_cvt_f32_to_i32(const Reg &f_reg);
+
+    void gen_store_to_variable(const StackEntry &var, Reg &&reg);
 
     std::string reserve_label();
 
@@ -60,5 +69,6 @@ private:
     CondExprOp cond_expr_op = CondExprOp::EQ;
     bool for_inclusive = false;
     int for_increment = 1;
+
 };
 
