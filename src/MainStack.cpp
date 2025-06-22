@@ -14,6 +14,8 @@ void MainStack::push(ExprElemType type, const std::string &value, VarType var_ty
         auto sym = symbolTable.find(value);
         if (sym.has_value())
             var_type = sym.value()->type;
+        else
+            throw std::runtime_error("Use of undeclared variable: " + value);
     }
     else if (type == ExprElemType::NUMBER && var_type == VarType::F32) {
         push_float_literal(value);
@@ -21,6 +23,14 @@ void MainStack::push(ExprElemType type, const std::string &value, VarType var_ty
     }
 
     stack.push({value, type, var_type});
+}
+
+void MainStack::push_id(const std::string &id, bool allow_undeclared) {
+    if (allow_undeclared) {
+        stack.push({id, ExprElemType::ID});
+        return;
+    }
+    push(ExprElemType::ID, id, VarType::UNDEFINED);
 }
 
 void MainStack::push(const StackEntry &entry) {

@@ -10,6 +10,8 @@ public:
 
     void push(ExprElemType type, const std::string &value, VarType var_type = VarType::UNDEFINED);
 
+    void push_id(const std::string &id, bool allow_undeclared=false);
+
     void push(const StackEntry &entry);
 
     void push(int32_t value) {

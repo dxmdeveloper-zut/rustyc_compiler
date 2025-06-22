@@ -40,6 +40,7 @@ stmt
     | KPRINT_F32 '(' wyr ')' ';' {compiler.gen_print(VarType::F32);}
     | KPRINT_STRING '(' wyr ')' ';' {compiler.gen_print(VarType::U8_ARR);}
     | if_expr {;}
+    | for_expr {;}
     ;
 
 code_block
@@ -54,11 +55,11 @@ wyr
 	;
 
 variable_decl
-    :I32 assignment {compiler.gen_declare(VarType::I32, true);}
-    |F32 assignment {compiler.gen_declare(VarType::F32, true);}
-    |U8 '[' ']' assignment {compiler.gen_declare(VarType::U8_ARR, true) /* TODO: wrong order */;}
-    |I32 ID {compiler.gen_declare(VarType::I32, false);}
-    |F32 ID {compiler.gen_declare(VarType::F32, false);}
+    :I32 assignment {compiler.gen_declare(VarType::I32);}
+    |F32 assignment {compiler.gen_declare(VarType::F32);}
+    |U8 '[' ']' assignment {compiler.gen_declare(VarType::U8_ARR) /* TODO: wrong order */;}
+    |I32 ID {compiler.gen_declare(VarType::I32, $2);}
+    |F32 ID {compiler.gen_declare(VarType::F32, $2);}
     |I32 ID dim_decl
     ;
 dim_decl
@@ -69,14 +70,14 @@ size_const
     | size_value {;}
     ;
 size_value
-    : KINT { static_array_sizes.push($1); }
+    : KINT { compiler.static_array_dims.push($1); }
     ;
 assignment
-    :ID '=' wyr     { compiler.stack.push(ExprElemType::ID, $1);}
+    :ID '=' wyr     { compiler.stack.push_id($1, true); }
     ;
 if_expr
 	:if_begin code_block { compiler.gen_if_end(); }
-	:if_begin code_block else_expr { compiler.gen_if_end(); }
+	|if_begin code_block else_expr { compiler.gen_if_end(); }
 	;
 if_begin
     :KIF '(' cond_expr ')' {compiler.gen_if_begin();}
@@ -91,10 +92,10 @@ for_begin
     :KFOR '(' for_cond ')' { compiler.gen_for_begin(); }
     ;
 for_cond
-    :I32 ID ':' wyr DOTDOT wyr {compiler.set_for_conditions($1, false);}
-    |I32 ID ':' wyr DOTDOTEQ wyr {compiler.set_for_conditions($1, true);}
-    |I32 ID ':' wyr DOTDOT wyr ':' KINT {compiler.set_for_conditions($1, false, $2);}
-    |I32 ID ':' wyr DOTDOTEQ wyr ':' KINT {compiler.set_for_conditions($1, true, $2);}
+    :I32 ID ':' wyr DOTDOT wyr {compiler.set_for_conditions($2, false);}
+    |I32 ID ':' wyr DOTDOTEQ wyr {compiler.set_for_conditions($2, true);}
+    |I32 ID ':' wyr DOTDOT wyr ':' KINT {compiler.set_for_conditions($2, false, $8);}
+    |I32 ID ':' wyr DOTDOTEQ wyr ':' KINT {compiler.set_for_conditions($2, true, $8);}
     ;
 cond_expr
     : wyr EQ wyr  { compiler.set_cond_expr_op(CondExprOp::EQ ) ;};
@@ -110,7 +111,7 @@ skladnik
 	|czynnik		{;}
 	;
 czynnik
-	:ID			{compiler.stack.push(ExprElemType::ID, $1);}
+	:ID			{compiler.stack.push_id($1);}
 	|STRING     {compiler.stack.push(ExprElemType::STRING_LITERAL, $1);}
 	|KINT		{compiler.stack.push($1);}
 	|KFLOAT     {compiler.stack.push($1);}

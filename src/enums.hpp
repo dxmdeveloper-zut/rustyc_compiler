@@ -62,8 +62,9 @@ struct StackEntry {
 
 struct SymbolInfo {
     VarType type;
-    bool temporary;
+    bool temporary = false;
     std::string initial_value;
+    bool tmp_in_data_region = false; // only for temporary variables
     std::vector<int> array_dims;
     std::vector<int> array_sizes;
     bool initialized = false;

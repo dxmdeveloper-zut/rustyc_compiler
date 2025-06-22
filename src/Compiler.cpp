@@ -24,7 +24,7 @@ void Compiler::gen_arithmetic(char op) {
     symbolTable[result_symbol] = {result_var_type, true};
 
     // Load left and right operands into registers
-    Reg rhs_reg = gen_load_to_register(rhs);
+    Reg rhs_reg = gen_load_to_register(rhs, true);
     Reg lhs_reg = gen_load_to_register(lhs);
 
     if (to_float) {
@@ -53,7 +53,7 @@ void Compiler::gen_arithmetic(char op) {
 
     text_region << instr_postfix << " " << rhs_reg << ", " << rhs_reg << ", " << lhs_reg << std::endl;
 
-    // TODO: TODO?
+    // push result to stack
     stack.push({result_symbol, ExprElemType::ID, result_var_type});
 
     gen_store_to_variable(stack.top(), std::move(rhs_reg));
@@ -72,48 +72,94 @@ void Compiler::gen_assignment() {
     if (!found_sym.has_value()) {
         throw std::runtime_error("undefined variable: " + lhs.value);
     }
-    if (!found_sym.value()->initialized && rhs.type != ExprElemType::ID) {
+
+    // assignment to uninitialized variable
+    bool assigned_statically = false;
+    if (!found_sym.value()->initialized) {
+        SymbolInfo* r_sym = nullptr;
+        if (rhs.type != ExprElemType::NUMBER)
+            r_sym = &symbolTable.at(rhs.value);
+
         if (rhs.type == ExprElemType::NUMBER) {
-            if (lhs.var_type == VarType::I32 && rhs.var_type == VarType::F32) {
-                // Convert float to int statically
-                rhs.value = std::to_string(std::stoi(rhs.value));
-            }
-            symbolTable[lhs.value].initial_value = rhs.value;
-        }
-        symbolTable[lhs.value].initialized = true;
-    } else if (rhs.var_type == VarType::U8_ARR) {
-        std::string string = symbolTable[rhs.value].initial_value;
-        symbolTable[lhs.value].initial_value = string;
-
-        if (rhs.value.rfind("__str", 0) == 0) {
+            found_sym.value()->initial_value = rhs.value;
+            assigned_statically = true;
+        } else if (rhs.value.rfind("__str") == 0) {
+            found_sym.value()->initial_value = r_sym->initial_value;
             symbolTable.erase(rhs.value);
+            assigned_statically = true;
+        } else if (rhs.value.rfind("__fl") == 0) {
+            if (lhs.var_type == VarType::I32)
+                r_sym->initial_value = std::to_string(std::stoi(r_sym->initial_value));
+            found_sym.value()->initial_value = r_sym->initial_value;
+            symbolTable.erase(rhs.value);
+            assigned_statically = true;
         }
-    } else if (rhs.var_type == VarType::F32 && rhs.value.rfind("__")) {
-        std::string val = symbolTable[rhs.value].initial_value;
-        symbolTable[lhs.value].initial_value = val;
+        found_sym.value()->initialized = true;
+    } else if (lhs.var_type == VarType::U8_ARR) {
+        throw std::runtime_error("reassignment of string is not allowed");
+    }
 
-        symbolTable.erase(rhs.value);
-    } else {
+    if (!assigned_statically) {
         auto rhs_reg = gen_load_to_register(rhs);
         // Conversion of right side to match left side variable type
         if (lhs.var_type == VarType::I32 && rhs.var_type == VarType::F32) {
-            rhs_reg = gen_cvt_i32_to_f32(rhs_reg);
-        } else if (lhs.var_type == VarType::F32 && rhs.var_type == VarType::I32) {
             rhs_reg = gen_cvt_f32_to_i32(rhs_reg);
+        } else if (lhs.var_type == VarType::F32 && rhs.var_type == VarType::I32) {
+            rhs_reg = gen_cvt_i32_to_f32(rhs_reg);
         }
         gen_store_to_variable(lhs, std::move(rhs_reg));
     }
+
+    //
+    // if (!found_sym.value()->initialized && rhs.type != ExprElemType::ID) {
+    //     if (rhs.type == ExprElemType::NUMBER) {
+    //         if (lhs.var_type == VarType::I32 && rhs.var_type == VarType::F32) {
+    //             // Convert float to int statically
+    //             rhs.value = std::to_string(std::stoi(rhs.value));
+    //         }
+    //         symbolTable[lhs.value].initial_value = rhs.value;
+    //     }
+    //     symbolTable[lhs.value].initialized = true;
+    // } else if (rhs.var_type == VarType::U8_ARR) {
+    //     std::string string = symbolTable[rhs.value].initial_value;
+    //     symbolTable[lhs.value].initial_value = string;
+    //
+    //     if (rhs.value.rfind("__str", 0) == 0) {
+    //         symbolTable.erase(rhs.value);
+    //     }
+    // } else if (rhs.var_type == VarType::F32 && rhs.value.rfind("__") == 0) {
+    //     std::string val = symbolTable[rhs.value].initial_value;
+    //     symbolTable[lhs.value].initial_value = val;
+    //
+    //     symbolTable.erase(rhs.value);
+    // } else {
+    //     auto rhs_reg = gen_load_to_register(rhs);
+    //     // Conversion of right side to match left side variable type
+    //     if (lhs.var_type == VarType::I32 && rhs.var_type == VarType::F32) {
+    //         rhs_reg = gen_cvt_f32_to_i32(rhs_reg);
+    //     } else if (lhs.var_type == VarType::F32 && rhs.var_type == VarType::I32) {
+    //         rhs_reg = gen_cvt_i32_to_f32(rhs_reg);
+    //     }
+    //     gen_store_to_variable(lhs, std::move(rhs_reg));
+    // }
+    reg_mgr.release_calc_results();
 }
 
-void Compiler::gen_declare(VarType type, bool assignment) {
-    StackEntry &lhs = stack.top();
-    std::string &symbol = lhs.value;
+void Compiler::gen_declare(VarType type, std::string declare_id_name) {
+    bool assignment = declare_id_name.empty();
+
+    if (!assignment) {
+        stack.push_id(declare_id_name, true);
+    }
+
+    std::string symbol(stack.top().value);
+
 
     if (symbolTable.contains(symbol)) {
         throw std::runtime_error("variable redeclaration: " + symbol);
     }
 
-    lhs.var_type = type;
+    stack.top().var_type = type;
     symbolTable[symbol] = {type, false};
 
     if (!assignment) {
@@ -168,17 +214,18 @@ void Compiler::gen_for_begin() {
     label_stack.pop();
     std::string loop_start_label = reserve_label();
 
+    reg_mgr.gen_dump_calc_results_to_memory(text_region);
+
     // Get index variable and right-hand side value from the stack
-    // TODO: reserve register to disallow storing there variables
-    // TODO: remove register from __result variables
-    auto [idx_id, rhs] = stack.pop_two();
-    Reg idx_reg = gen_load_to_register(idx_id);
+    auto [range_stop, idx] = stack.pop_two();
+    Reg idx_reg = gen_load_to_register(idx);
 
     // write start of the loop label
+    text_region << "b " << loop_body_label << std::endl;
     text_region << loop_start_label << ":" << std::endl;
 
     std::string idx_reg_str = idx_reg.str();
-    idx_reg = gen_load_to_register(idx_id, idx_reg_str.c_str());
+    idx_reg = gen_load_to_register(idx, idx_reg_str.c_str());
 
     // increment
     if (for_increment > 0) {
@@ -186,9 +233,10 @@ void Compiler::gen_for_begin() {
     } else {
         text_region << "subi " << idx_reg << ", " << idx_reg << ", " << -for_increment << std::endl;
     }
+    gen_store_to_variable(idx, std::move(idx_reg));
 
     // condition check
-    Reg rhs_reg = gen_load_to_register(rhs);
+    Reg rhs_reg = gen_load_to_register(range_stop);
 
     std::string branch_instr;
     if (for_increment > 0)
@@ -197,6 +245,7 @@ void Compiler::gen_for_begin() {
         branch_instr = (for_inclusive ? "blt" : "ble");
 
     text_region << branch_instr << " " << idx_reg << ", " << rhs_reg << ", " << loop_end_label << std::endl;
+    text_region << loop_body_label << ":" << std::endl;
 }
 
 void Compiler::gen_for_end() {
@@ -217,8 +266,7 @@ void Compiler::set_for_conditions(std::string idx_id, bool inclusive, int increm
     auto range_right = stack.pop();
     // range left is in the stack top
     // declaration with assignment idx = range_left
-    stack.push(ExprElemType::ID, idx_id, VarType::I32);
-    gen_declare(VarType::I32, true);
+    gen_declare(VarType::I32, idx_id);
 
     stack.push(ExprElemType::ID, idx_id, VarType::I32);
     stack.push(range_right);
@@ -229,20 +277,62 @@ void Compiler::set_for_conditions(std::string idx_id, bool inclusive, int increm
 
 Reg Compiler::gen_load_to_register(const StackEntry &entry, const char *reg_name) {
     Reg reg{};
+
+    if (entry.type == ExprElemType::ID) {
+        auto symbol = symbolTable.find(entry.value);
+        assert(symbol.has_value());
+        if (symbol.value()->occupied_reg) {
+            if (reg_name == nullptr || symbol.value()->occupied_reg.str() == reg_name) {
+                return symbol.value()->occupied_reg;
+            } else {
+                text_region << reg_name << ":" << std::endl;
+                text_region << "l" << entry.get_instr_postfix() << " "
+                << reg_name << ", " << symbol.value()->occupied_reg << std::endl;
+            }
+        }
+    }
+
     if (reg_name == nullptr) {
         if (entry.var_type == VarType::I32) {
             reg = reg_mgr.get_free_register(Reg::Type::T_REG);
-        }
-        else if (entry.var_type == VarType::F32) {
+        } else if (entry.var_type == VarType::F32) {
             reg = reg_mgr.get_free_register(Reg::Type::F_REG);
         }
         if (!reg) {
             throw std::runtime_error("Out of registers");
         }
-    }
-    else reg = Reg(reg_name);
+    } else reg = Reg(reg_name);
 
     assert(!(entry.var_type != VarType::F32 && reg.get_type() == Reg::Type::F_REG));
+
+    text_region << "l" << entry.get_instr_postfix() << " "
+            << reg.str() << ", " << entry.value << std::endl;
+
+    return std::move(reg);
+}
+
+Reg Compiler::gen_load_to_register(const StackEntry &entry, bool calc_result) {
+    Reg reg{};
+
+    if (entry.type == ExprElemType::ID) {
+        auto symbol = symbolTable.find(entry.value);
+        assert(symbol.has_value());
+        if (symbol.value()->occupied_reg) {
+            return symbol.value()->occupied_reg;
+        }
+    }
+
+    if (calc_result == false)
+        return std::move(gen_load_to_register(entry));
+
+    if (entry.var_type == VarType::I32)
+        reg = reg_mgr.get_free_register(Reg::Type::T_REG, StoringType::CALC_RESULT);
+    else if (entry.var_type == VarType::F32)
+        reg = reg_mgr.get_free_register(Reg::Type::F_REG, StoringType::CALC_RESULT);
+
+    if (!reg) {
+        throw std::runtime_error("Out of registers");
+    }
 
     text_region << "l" << entry.get_instr_postfix() << " "
             << reg.str() << ", " << entry.value << std::endl;
@@ -265,6 +355,7 @@ void Compiler::gen_cvt_f32_to_i32(const Reg &f_reg, const Reg &i_reg) {
 }
 
 Reg Compiler::gen_cvt_i32_to_f32(const Reg &i_reg) {
+    assert(i_reg.get_type() == Reg::Type::T_REG);
     Reg f_reg = reg_mgr.get_free_register(Reg::Type::F_REG);
     if (!f_reg) {
         throw std::runtime_error("Out of registers");
@@ -274,6 +365,7 @@ Reg Compiler::gen_cvt_i32_to_f32(const Reg &i_reg) {
 }
 
 Reg Compiler::gen_cvt_f32_to_i32(const Reg &f_reg) {
+    assert(f_reg.get_type() == Reg::Type::F_REG);
     Reg i_reg = reg_mgr.get_free_register(Reg::Type::T_REG);
     if (!i_reg) {
         throw std::runtime_error("Out of registers");
@@ -284,15 +376,16 @@ Reg Compiler::gen_cvt_f32_to_i32(const Reg &f_reg) {
 
 void Compiler::gen_store_to_variable(const StackEntry &var, Reg &&reg) {
     assert(reg);
-    if (var.value.rfind("__result", 0) == 0) {
-        if (reg_mgr.set_storing_type(reg, RegisterManager::StoringType::CALC_RESULT) == 0) {
+    if (var.value.rfind("__tmp", 0) == 0) {
+        if (reg_mgr.try_preserve_value(reg, StoringType::CALC_RESULT, var.value) == 0) {
             symbolTable.at(var.value).occupied_reg = std::move(reg);
             return;
         }
+        symbolTable.at(var.value).tmp_in_data_region = true;
     }
     text_region << "s" << var.get_instr_postfix()
             << " " << reg
-            << " , " << var.value << std::endl;
+            << ", " << var.value << std::endl;
 }
 
 std::string Compiler::reserve_label() {
@@ -305,8 +398,11 @@ std::string Compiler::reserve_label() {
 void Compiler::gen_print(VarType print_type) {
     auto stack_elem = stack.pop();
 
-    if (stack_elem.type == ExprElemType::ID && !symbolTable.contains(stack_elem.value)) {
-        throw std::runtime_error("Undefined variable");
+    // Check type
+    if (!((stack_elem.var_type == VarType::I32 && print_type == VarType::I32)
+        || stack_elem.var_type == VarType::F32 && print_type == VarType::F32
+        || stack_elem.var_type == VarType::U8_ARR && print_type == VarType::U8_ARR)) {
+        throw std::runtime_error("Invalid print argument type");
     }
 
     switch (print_type) {
@@ -317,6 +413,7 @@ void Compiler::gen_print(VarType print_type) {
         case VarType::F32:
             gen_load_to_register(2, "$v0");
             gen_load_to_register(stack_elem, "$f12");
+            break;
         case VarType::U8_ARR:
             gen_load_to_register(4, "$v0");
             gen_load_to_register(stack_elem, "$a0");
@@ -365,6 +462,10 @@ void Compiler::declare_array(VarType type) {
 void Compiler::write_data_region(std::ostream &ostream) const {
     ostream << ".data:" << std::endl;
     for (auto &symbol: symbolTable) {
+        assert(!(symbol.second.temporary && symbol.first[0] != '_'));
+        if (symbol.second.temporary && !symbol.second.tmp_in_data_region)
+            continue;
+
         ostream << symbol.first << ":    ";
         auto value = symbol.second.initial_value;
 

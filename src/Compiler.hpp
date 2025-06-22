@@ -12,7 +12,8 @@ public:
 
     void gen_assignment();
 
-    void gen_declare(VarType type, bool assignment);
+    /// @param declare_id_name for declaration without initialization
+    void gen_declare(VarType type, std::string declare_id_name="");
 
     void gen_if_begin();
 
@@ -39,10 +40,13 @@ public:
 public:
     MainStack stack;
     RegisterManager reg_mgr;
+    HashMap<std::string, SymbolInfo> symbolTable;
     std::stack<int32_t> static_array_dims;
 
 private:
     Reg gen_load_to_register(const StackEntry &entry, const char *reg_name = nullptr);
+
+    Reg gen_load_to_register(const StackEntry &entry, bool calc_result);
 
     void gen_load_to_register(int value, std::string_view reg);
 
@@ -59,9 +63,10 @@ private:
     std::string reserve_label();
 
 private:
+    using StoringType = RegisterManager::StoringType;
+
     std::stringstream data_region;
     std::stringstream text_region;
-    HashMap<std::string, SymbolInfo> symbolTable;
 
     std::stack<std::string> label_stack;
 

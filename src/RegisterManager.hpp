@@ -23,7 +23,11 @@ public:
 
     Reg(const char *reg_name);
 
+    Reg(Reg &other);
+
     Reg(Reg &&other) noexcept;
+
+    void reset();
 
     bool is_valid() const;
 
@@ -52,7 +56,8 @@ private:
 };
 
 inline std::ostream &operator <<(std::ostream &os, const Reg &reg) {
-    return os << reg.str();
+    std::string reg_name = reg.str();
+    return os << reg_name;
 }
 
 class RegisterManager {
@@ -72,15 +77,17 @@ public:
 
     explicit RegisterManager(Compiler *compiler);
 
-    [[nodiscard]] int set_storing_type(const Reg &reg, StoringType type);
+    [[nodiscard]] int try_preserve_value(const Reg &reg, StoringType type, const std::string &symbol_name);
 
     void tmp_cleanup();
 
     void release_calc_results();
 
+    void gen_dump_calc_results_to_memory(std::ostream &text_region);
+
     void release_register(Reg::Type type, int idx);
 
-    Reg get_free_register(Reg::Type type, StoringType purpose = StoringType::TEMP);
+    Reg get_free_register(Reg::Type type, StoringType target_purpose = StoringType::TEMP);
 
 private:
     struct RegStorage {

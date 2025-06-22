@@ -18,9 +18,18 @@ Reg::Reg(const char *reg_name): reg_index(0), type(Type::T_REG), compiler(nullpt
         || (type == Type::A_REG && reg_index < RegisterManager::A_REG_COUNT));
 }
 
+Reg::Reg(Reg &other) : reg_index(other.reg_index), type(other.type), compiler(nullptr) {
+};
+
 Reg::Reg(Reg &&other) noexcept: reg_index(other.reg_index), type(other.type), compiler(other.compiler) {
     assert(other.type != Type::UNASSIGNED);
     other.compiler = nullptr;
+}
+
+void Reg::reset() {
+    reg_index = 0;
+    type = Type::UNASSIGNED;
+    compiler = nullptr;
 }
 
 bool Reg::is_valid() const {
@@ -33,7 +42,8 @@ Reg::Type Reg::get_type() const {
 
 std::string Reg::str() const {
     assert(type != Type::UNASSIGNED);
-    return "$" + char(type) + std::to_string(reg_index);
+    std::string str = std::string("$") + char(type) + std::to_string(reg_index);
+    return str;
 }
 
 Reg::operator std::string() const {
@@ -45,12 +55,11 @@ Reg::operator bool() const {
 }
 
 Reg & Reg::operator=(Reg &&other) noexcept {
-    assert(other.type != Type::UNASSIGNED);
-
     this->compiler = other.compiler;
     this->type = other.type;
     this->reg_index = other.reg_index;
     other.compiler = nullptr;
+    return *this;
 }
 
 void Reg::release() {
@@ -71,8 +80,10 @@ RegisterManager::RegisterManager(Compiler *compiler): compiler(compiler) {
     f_regs[12] = {StoringType::RESERVED};
 }
 
-int RegisterManager::set_storing_type(const Reg &reg, StoringType type) {
+int RegisterManager::try_preserve_value(const Reg &reg, StoringType type, const std::string &symbol_name) {
     assert(reg && type != StoringType::NONE);
+    if (reg.compiler == nullptr)
+        return 0; // for copied Regs from symbolTable symbols
 
     if (reg.get_type() == Reg::Type::T_REG) {
         auto count = std::count_if(t_regs.begin(), t_regs.end(),
@@ -80,6 +91,7 @@ int RegisterManager::set_storing_type(const Reg &reg, StoringType type) {
 
         if (count > 2) {
             t_regs[reg.reg_index].storing_type = type;
+            t_regs[reg.reg_index].var_id = symbol_name;
             return 0;
         }
         return -1;
@@ -90,6 +102,7 @@ int RegisterManager::set_storing_type(const Reg &reg, StoringType type) {
 
         if (count > 2) {
             f_regs[reg.reg_index].storing_type = type;
+            f_regs[reg.reg_index].var_id = symbol_name;
             return 0;
         }
         return -1;
@@ -109,14 +122,39 @@ void RegisterManager::tmp_cleanup() {
 }
 
 void RegisterManager::release_calc_results() {
-    for (auto &reg: t_regs) {
-        if (reg.storing_type == StoringType::CALC_RESULT)
-            reg.reset();
+    for (auto &reg_storage: t_regs) {
+        if (reg_storage.storing_type == StoringType::CALC_RESULT) {
+            if (!reg_storage.var_id.empty()) {
+                compiler->symbolTable.at(reg_storage.var_id).occupied_reg.reset();
+            }
+            reg_storage.reset();
+
+        }
     }
-    for (auto &reg: f_regs) {
-        if (reg.storing_type == StoringType::CALC_RESULT)
-            reg.reset();
+    for (auto &reg_storage: f_regs) {
+        if (reg_storage.storing_type == StoringType::CALC_RESULT) {
+            if (!reg_storage.var_id.empty()) {
+                compiler->symbolTable.at(reg_storage.var_id).occupied_reg.reset();
+            }
+            reg_storage.reset();
+        }
     }
+}
+
+void RegisterManager::gen_dump_calc_results_to_memory(std::ostream &text_region) {
+    int i = 0;
+    for (auto &reg_storage: t_regs) {
+        if (reg_storage.storing_type == StoringType::CALC_RESULT) {
+            if (!reg_storage.var_id.empty()) {
+                Reg *reg_ptr = &compiler->symbolTable.at(reg_storage.var_id).occupied_reg;
+                text_region << "sw " << *reg_ptr << ", " << reg_storage.var_id << std::endl;
+                reg_ptr->reset();
+                reg_storage.reset();
+            }
+        }
+        i++;
+    }
+    // TODO: float registers
 }
 
 void RegisterManager::release_register(Reg::Type type, int idx) {
@@ -128,30 +166,27 @@ void RegisterManager::release_register(Reg::Type type, int idx) {
     }
 }
 
-Reg RegisterManager::get_free_register(Reg::Type type, StoringType purpose) {
+Reg RegisterManager::get_free_register(Reg::Type type, StoringType target_purpose) {
     assert(type == Reg::Type::T_REG || type == Reg::Type::F_REG);
 
     Reg void_reg(Reg::Type::UNASSIGNED, 0, nullptr);
 
     auto get_free_reg = [&](auto &regs, Reg::Type reg_type) -> Reg {
-        // Count free registers
-        auto count = std::count_if(regs.begin(), regs.end(),
-            [](const RegStorage &reg) { return reg.storing_type == StoringType::NONE; });
 
-        if ((purpose != StoringType::TEMP && count < 2) || count == 0) {
-            // Try to release temporary registers
-            tmp_cleanup();
-            count = std::count_if(regs.begin(), regs.end(),
-                [](const RegStorage &reg) { return reg.storing_type == StoringType::NONE; });
-
-            if ((purpose != StoringType::TEMP && count < 2) || count == 0)
-                return void_reg;
-        }
         // Find first free register
-        for (unsigned i = 0; i < regs.size(); i++) {
-            if (regs[i].storing_type == StoringType::NONE) {
-                regs[i].storing_type = purpose;
-                return {reg_type, i, compiler};
+        if (target_purpose == StoringType::TEMP) {
+            for (unsigned i = 0; i < regs.size(); i++) {
+                if (regs[i].storing_type == StoringType::NONE) {
+                    regs[i].storing_type = StoringType::TEMP;
+                    return {reg_type, i, compiler};
+                }
+            }
+        } else {
+            for (unsigned i = regs.size(); i-- > 0;) {
+                if (regs[i].storing_type == StoringType::NONE) {
+                    regs[i].storing_type = StoringType::TEMP;
+                    return {reg_type, i, compiler};
+                }
             }
         }
         return void_reg;
