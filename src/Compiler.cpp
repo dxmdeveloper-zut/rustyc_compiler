@@ -576,9 +576,9 @@ void Compiler::gen_calc_arr_addr(bool extract) {
         idx_reg.release();
     }
 
+    auto type = id.var_type == VarType::I32_ARR ? VarType::I32 : VarType::F32;
     if (extract) {
-        auto type = id.var_type == VarType::I32_ARR ? VarType::I32 : VarType::F32;
-        symbolTable[tmp_res_sym_name].type = type;
+
         Reg dest = addr_reg;
         if (type == VarType::F32) {
             dest = reg_mgr.get_free_register(Reg::Type::F_REG, StoringType::CALC_RESULT);
@@ -588,6 +588,7 @@ void Compiler::gen_calc_arr_addr(bool extract) {
             addr_reg = std::move(dest);
     }
 
+    symbolTable[tmp_res_sym_name].type = type;
     stack.push_id(tmp_res_sym_name);
     gen_store_to_variable(stack.top(), std::move(addr_reg));
     stack.top().is_arr_elem = !extract;
