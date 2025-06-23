@@ -76,7 +76,7 @@ void Compiler::gen_assignment() {
     if (!found_sym.value()->initialized && !lhs.is_arr_elem) {
         found_sym.value()->initialized = true;
 
-        if (loop_depth == 0) {
+        if (loop_depth == 0 || lhs.var_type == VarType::U8_ARR) {
             SymbolInfo *r_sym = nullptr;
             if (rhs.type != ExprElemType::NUMBER)
                 r_sym = &symbolTable.at(rhs.value);
@@ -147,29 +147,28 @@ void Compiler::gen_if_begin() {
 
     static_assert(static_cast<int>(CondExprOp::EQ) == 0
                   && static_cast<int>(CondExprOp::GEQ) == 5);
-    std::array<std::string_view, 6> branch_instr = {
-        "ne", // CondExprOp::EQ
-        "eq", // CondExprOp::NEQ
-        "ge", // CondExprOp::LT
-        "gt", // CondExprOp::LEQ
-        "le", // CondExprOp::GT
-        "lt" // CondExprOp::GEQ
-    };
+    std::array<std::array<std::string_view, 3>, 6> branch_instr = {{
+        { "bne ", "c.eq.s ", "bc1f " }, // CondExprOp::EQ
+        { "beq ", "c.eq.s ", "bc1t " }, // CondExprOp::NEQ
+        { "bge ", "c.lt.s ", "bc1f " }, // CondExprOp::LT
+        { "bgt ", "c.le.s ", "bc1f " }, // CondExprOp::LEQ
+        { "ble ", "c.le.s ", "bc1t " }, // CondExprOp::GT
+        { "blt ", "c.lt.s ", "bc1f " }  // CondExprOp::GEQ
+    }};
 
-    auto [lhs, rhs] = stack.pop_two();
+    auto [rhs, lhs] = stack.pop_two();
 
     Reg lhs_reg = gen_load_to_register(lhs);
     Reg rhs_reg = gen_load_to_register(rhs);
 
     gen_auto_reg_type_unify(lhs_reg, rhs_reg);
 
+    auto& bi = branch_instr[int(cond_expr_op)];
     if (lhs_reg.get_type() == Reg::Type::F_REG) {
-        text_region << "c" << branch_instr[int(cond_expr_op)]
-                << ".s " << lhs_reg.str() << ", " << rhs_reg.str() << std::endl;
-        text_region << "bclt " << jump_label << std::endl;
+        text_region << bi[1] << lhs_reg << ", " << rhs_reg << std::endl;
+        text_region << bi[2] << jump_label << std::endl;
     } else {
-        text_region << "b" << branch_instr[int(cond_expr_op)]
-                << " " << lhs_reg.str() << ", " << rhs_reg.str() << ", " << jump_label << std::endl;
+        text_region << bi[0] << lhs_reg << ", " << rhs_reg << ", " << jump_label << std::endl;
     }
 }
 
@@ -268,7 +267,8 @@ Reg Compiler::gen_load_to_register(const StackEntry &entry, const char *reg_name
         assert(symbol.has_value());
         if (symbol.value()->occupied_reg) {
             if (reg_name != nullptr && symbol.value()->occupied_reg.str() != reg_name) {
-                text_region << "move "
+                auto instruction = entry.var_type == VarType::F32 ? "mov.s " : "move ";
+                text_region << instruction
                         << reg_name << ", " << symbol.value()->occupied_reg << std::endl;
             }
             return symbol.value()->occupied_reg;
@@ -390,6 +390,9 @@ void Compiler::gen_store_to_variable(const StackEntry &var, Reg &&reg) {
             var_s += gen_load_to_register(var).str();
         }
         var_s += ")";
+    }
+    if (var.value.rfind("__tmp") == 0) {
+        symbolTable.at(var.value).tmp_in_data_region = true;
     }
 
     text_region << "s" << var.get_instr_postfix()
@@ -576,7 +579,13 @@ void Compiler::gen_calc_arr_addr(bool extract) {
     if (extract) {
         auto type = id.var_type == VarType::I32_ARR ? VarType::I32 : VarType::F32;
         symbolTable[tmp_res_sym_name].type = type;
-        text_region << "l" << (type == VarType::I32 ? "w" : ".s") << " " << addr_reg << ", (" << addr_reg << ")" << std::endl;
+        Reg dest = addr_reg;
+        if (type == VarType::F32) {
+            dest = reg_mgr.get_free_register(Reg::Type::F_REG, StoringType::CALC_RESULT);
+        }
+        text_region << "l" << (type == VarType::I32 ? "w" : ".s") << " " << dest << ", (" << addr_reg << ")" << std::endl;
+        if (type == VarType::F32)
+            addr_reg = std::move(dest);
     }
 
     stack.push_id(tmp_res_sym_name);

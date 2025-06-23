@@ -149,9 +149,11 @@ void RegisterManager::gen_dump_calc_results_to_memory(std::ostream &text_region)
     auto lambda = [&](RegStorage &reg_storage, const std::string& postfix) {
         if (reg_storage.storing_type == StoringType::CALC_RESULT) {
             if (!reg_storage.var_id.empty()) {
-                Reg *reg_ptr = &compiler->symbolTable.at(reg_storage.var_id).occupied_reg;
+                auto& sym = compiler->symbolTable.at(reg_storage.var_id);
+                Reg *reg_ptr = &sym.occupied_reg;
                 text_region << "s" << postfix << " " << *reg_ptr << ", " << reg_storage.var_id << std::endl;
                 reg_ptr->reset();
+                sym.tmp_in_data_region = true;
                 reg_storage.reset();
             }
         }
