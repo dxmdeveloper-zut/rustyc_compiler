@@ -57,33 +57,35 @@ wyr
 variable_decl
     :I32 assignment {compiler.gen_declare(VarType::I32);}
     |F32 assignment {compiler.gen_declare(VarType::F32);}
-    |U8 '[' ']' assignment {compiler.gen_declare(VarType::U8_ARR) /* TODO: wrong order */;}
+    |U8 ID '[' ']' '=' wyr { compiler.stack.push_id($2, true); compiler.gen_declare(VarType::U8_ARR); }
     |I32 ID {compiler.gen_declare(VarType::I32, $2);}
     |F32 ID {compiler.gen_declare(VarType::F32, $2);}
-    |I32 ID dim_decl
+    |I32 ID dim_decl {compiler.gen_declare(VarType::I32_ARR, $2);}
+    |F32 ID dim_decl {compiler.gen_declare(VarType::F32_ARR, $2);}
     ;
 dim_decl
     : '[' size_const ']' {;}
     ;
 size_const
-    : size_const ',' size_value {;}
-    | size_value {;}
+    : size_const ',' static_size_value {;}
+    | static_size_value {;}
     ;
-size_value
+static_size_value
     : KINT { compiler.static_array_dims.push($1); }
     ;
 assignment
-    :ID '=' wyr     { compiler.stack.push_id($1, true); }
+    :ID '=' wyr         { compiler.stack.push_id($1, true); }
+    |ID arr_idx '=' wyr { compiler.stack.push_id($1); compiler.gen_calc_arr_addr(false); }
     ;
 if_expr
 	:if_begin code_block { compiler.gen_if_end(); }
-	|if_begin code_block else_expr { compiler.gen_if_end(); }
+	|if_begin code_block else_begin code_block { compiler.gen_if_end(); }
 	;
 if_begin
     :KIF '(' cond_expr ')' {compiler.gen_if_begin();}
     ;
-else_expr
-    :KELSE code_block { compiler.gen_else(); }
+else_begin
+    :KELSE { compiler.gen_else(); }
     ;
 for_expr
     :for_begin code_block { compiler.gen_for_end(); }
@@ -115,13 +117,32 @@ czynnik
 	|STRING     {compiler.stack.push(ExprElemType::STRING_LITERAL, $1);}
 	|KINT		{compiler.stack.push($1);}
 	|KFLOAT     {compiler.stack.push($1);}
+	|ID arr_idx {compiler.stack.push_id($1); compiler.gen_calc_arr_addr(true);}
 	|'(' wyr ')'		{printf("B: wyrazenie w nawiasach\n");}
 	;
+arr_idx
+    : '[' arr_dim_idx ']' {;}
+    ;
+arr_dim_idx
+    : arr_dim_idx ',' wyr { compiler.add_idx_to_arr_idx_stack();}
+    | wyr { compiler.add_idx_to_arr_idx_stack();}
+    ;
 %%
 int main(int argc, char **argv) {
     yyparse();
 
-    compiler.write_data_region(std::cout);
-    compiler.write_text_region(std::cout);
+    if (argc <= 1){
+        compiler.write_data_region(std::cout);
+        compiler.write_text_region(std::cout);
+    } else {
+        std::ofstream outfile(argv[1]);
+        if (!outfile.is_open()) {
+            std::cerr << "Error opening output file: " << argv[1] << std::endl;
+            return 1;
+        }
+        compiler.write_data_region(outfile);
+        compiler.write_text_region(outfile);
+    }
+
     return 0;
 }

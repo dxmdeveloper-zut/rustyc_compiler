@@ -21,8 +21,9 @@ Reg::Reg(const char *reg_name): reg_index(0), type(Type::T_REG), compiler(nullpt
 Reg::Reg(Reg &other) : reg_index(other.reg_index), type(other.type), compiler(nullptr) {
 };
 
-Reg::Reg(Reg &&other) noexcept: reg_index(other.reg_index), type(other.type), compiler(other.compiler) {
-    assert(other.type != Type::UNASSIGNED);
+Reg::Reg(Reg &&other) noexcept
+: reg_index(other.reg_index), type(other.type), compiler(other.compiler),
+reserved_for_calc_result_alloc(other.reserved_for_calc_result_alloc){
     other.compiler = nullptr;
 }
 
@@ -46,10 +47,6 @@ std::string Reg::str() const {
     return str;
 }
 
-Reg::operator std::string() const {
-    return str();
-}
-
 Reg::operator bool() const {
     return type != Type::UNASSIGNED;
 }
@@ -58,6 +55,7 @@ Reg & Reg::operator=(Reg &&other) noexcept {
     this->compiler = other.compiler;
     this->type = other.type;
     this->reg_index = other.reg_index;
+    this->reserved_for_calc_result_alloc = other.reserved_for_calc_result_alloc;
     other.compiler = nullptr;
     return *this;
 }
@@ -73,6 +71,10 @@ Reg::~Reg() {
     release();
 }
 
+bool Reg::is_reserved_for_calc_result_storing() const {
+    return reserved_for_calc_result_alloc;
+}
+
 Reg::Reg(Type type, unsigned reg_index, Compiler *compiler): type {type}, reg_index{reg_index}, compiler{compiler} {}
 
 RegisterManager::RegisterManager(Compiler *compiler): compiler(compiler) {
@@ -80,8 +82,10 @@ RegisterManager::RegisterManager(Compiler *compiler): compiler(compiler) {
     f_regs[12] = {StoringType::RESERVED};
 }
 
-int RegisterManager::try_preserve_value(const Reg &reg, StoringType type, const std::string &symbol_name) {
+int RegisterManager::try_preserve_value(Reg &reg, StoringType type, const std::string &symbol_name) {
     assert(reg && type != StoringType::NONE);
+    reg.reserved_for_calc_result_alloc = false;
+
     if (reg.compiler == nullptr)
         return 0; // for copied Regs from symbolTable symbols
 
@@ -142,19 +146,22 @@ void RegisterManager::release_calc_results() {
 }
 
 void RegisterManager::gen_dump_calc_results_to_memory(std::ostream &text_region) {
-    int i = 0;
-    for (auto &reg_storage: t_regs) {
+    auto lambda = [&](RegStorage &reg_storage, const std::string& postfix) {
         if (reg_storage.storing_type == StoringType::CALC_RESULT) {
             if (!reg_storage.var_id.empty()) {
                 Reg *reg_ptr = &compiler->symbolTable.at(reg_storage.var_id).occupied_reg;
-                text_region << "sw " << *reg_ptr << ", " << reg_storage.var_id << std::endl;
+                text_region << "s" << postfix << " " << *reg_ptr << ", " << reg_storage.var_id << std::endl;
                 reg_ptr->reset();
                 reg_storage.reset();
             }
         }
-        i++;
+    };
+    for (auto &reg_storage: t_regs) {
+        lambda(reg_storage, "w");
     }
-    // TODO: float registers
+    for (auto &reg_storage: f_regs) {
+        lambda(reg_storage, ".s");
+    }
 }
 
 void RegisterManager::release_register(Reg::Type type, int idx) {
@@ -185,7 +192,10 @@ Reg RegisterManager::get_free_register(Reg::Type type, StoringType target_purpos
             for (unsigned i = regs.size(); i-- > 0;) {
                 if (regs[i].storing_type == StoringType::NONE) {
                     regs[i].storing_type = StoringType::TEMP;
-                    return {reg_type, i, compiler};
+                    Reg r = {reg_type, i, compiler};
+                    if (target_purpose == StoringType::CALC_RESULT)
+                        r.reserved_for_calc_result_alloc = true;
+                    return std::move(r);
                 }
             }
         }

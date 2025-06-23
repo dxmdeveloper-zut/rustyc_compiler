@@ -26,6 +26,7 @@ add_executable(compiler
         src/Compiler.hpp
         src/Compiler.cpp
         src/HashMap.hpp
+        src/common.hpp
         src/RegisterManager.cpp
         src/RegisterManager.hpp
 )

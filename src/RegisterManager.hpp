@@ -37,13 +37,15 @@ public:
 
     void release();
 
-    operator std::string() const;
-
     explicit operator bool() const;
 
     Reg &operator=(Reg &&other) noexcept;
 
     ~Reg();
+
+    bool is_reserved_for_calc_result_storing() const;
+
+    bool reserved_for_calc_result_alloc = false;
 
 private:
     Reg(Type type, unsigned reg_index, Compiler *compiler);
@@ -77,7 +79,7 @@ public:
 
     explicit RegisterManager(Compiler *compiler);
 
-    [[nodiscard]] int try_preserve_value(const Reg &reg, StoringType type, const std::string &symbol_name);
+    [[nodiscard]] int try_preserve_value(Reg &reg, StoringType type, const std::string &symbol_name);
 
     void tmp_cleanup();
 

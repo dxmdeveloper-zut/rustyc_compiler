@@ -1,7 +1,7 @@
 #pragma once
 #include <stack>
 #include <utility>
-#include "enums.hpp"
+#include "common.hpp"
 #include "HashMap.hpp"
 
 class MainStack {

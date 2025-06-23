@@ -33,8 +33,8 @@ public:
         return std::nullopt;
     }
 
-    void insert(const TKey &key, const TValue &value) {
-        map.insert({key, value});
+    void insert(const TKey &key, TValue &&value) {
+        map.insert(std::make_pair(key, std::move(value)));
     }
 
     void erase(const TKey &key) {
