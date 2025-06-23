@@ -455,7 +455,6 @@ void Compiler::declare_array(VarType type, const std::string &id) {
     if (symbolTable.contains(id))
         throw std::runtime_error("Symbol already exists");
 
-    size_t total_size = 0;
     int32_t cur_size = 1;
     std::vector<int32_t> dims = stack_dump_to_vector(static_array_dims);
     std::vector<int32_t> sizes;
@@ -467,13 +466,12 @@ void Compiler::declare_array(VarType type, const std::string &id) {
         }
         sizes.push_back(cur_size);
         cur_size *= dim;
-        total_size += dim;
     }
 
     SymbolInfo symbol{
         .type = type,
         .temporary = false,
-        .initial_value = "0:" + std::to_string(total_size),
+        .initial_value = "0:" + std::to_string(cur_size),
         .array_dims = dims,
         .array_sizes = sizes,
         .initialized = true
